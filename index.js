@@ -8,6 +8,9 @@ const asStream = require('obs-store/lib/asStream')
 const ObjectMultiplex = require('obj-multiplex')
 const util = require('util')
 const SafeEventEmitter = require('safe-event-emitter')
+const extend = require('xtend')
+let isEnabled = false
+let isConnected = false
 
 module.exports = MetamaskInpageProvider
 
@@ -35,6 +38,10 @@ function MetamaskInpageProvider (connectionStream) {
 
   // Emit events for some state changes
   self.publicConfigStore.subscribe(function (state) {
+    if (!isConnected) {
+      isConnected = true
+      this.emit('connect')
+    }
 
     // Emit accountsChanged event on account change
     if ('selectedAddress' in state && state.selectedAddress !== self.selectedAddress) {
@@ -74,10 +81,7 @@ function MetamaskInpageProvider (connectionStream) {
   rpcEngine.push(jsonRpcConnection.middleware)
   self.rpcEngine = rpcEngine
 
-  // forward json rpc notifications
-  jsonRpcConnection.events.on('notification', function(payload) {
-    self.emit('data', null, payload)
-  })
+  jsonRpcConnection.events.on('notification', (msg) => this.receive(msg))
 
   // Work around for https://github.com/metamask/metamask-extension/issues/5459
   // drizzle accidently breaking the `this` reference
@@ -85,15 +89,45 @@ function MetamaskInpageProvider (connectionStream) {
   self.sendAsync = self.sendAsync.bind(self)
 }
 
-// Web3 1.0 provider uses `send` with a callback for async queries
-MetamaskInpageProvider.prototype.send = function (payload, callback) {
-  const self = this
+MetamaskInpageProvider.prototype.receive = function (message) {
 
-  if (callback) {
-    self.sendAsync(payload, callback)
-  } else {
-    return self._sendSync(payload)
+  try {
+    const data = JSON.parse(message)
+
+    // forward json rpc notifications
+    if (data.method && data.method === 'eth_subscription') {
+      return this.emit('data', null, message)
+    }
+
+    // Handle any other message types here.
+
+  } catch (error) {
+    // This message was not JSON, so we don't handle it here.
   }
+}
+
+// Web3 1.0 provider uses `send` with a callback for async queries
+MetamaskInpageProvider.prototype.send = function (a, b) {
+  if (typeof a === 'string' && !b || Array.isArray(b)) {
+    return this.send2(a, b)
+  }
+  return this.sendAsync(a, b)
+}
+
+MetamaskInpageProvider.prototype.send2 = function (method, params = []) {
+  if (method === 'eth_requestAccounts') return this.enable()
+
+  return new Promise((resolve, reject) => {
+    try {
+      this.sendAsync({ method, params, beta: true }, (error, response) => {
+        error = error || response.error
+        error ? reject(error) : resolve(response)
+      })
+    } catch (error) {
+      // Per EIP-1193, send should never throw, only reject its Promise. Here
+      // we swallow thrown errors, which is safe since we handle them above.
+    }
+  })
 }
 
 // handle sendAsync requests via asyncProvider
@@ -101,11 +135,11 @@ MetamaskInpageProvider.prototype.send = function (payload, callback) {
 MetamaskInpageProvider.prototype.sendAsync = function (payload, cb) {
   const self = this
 
-  if (payload.method === 'eth_signTypedData') {
-    console.warn('MetaMask: This experimental version of eth_signTypedData will be deprecated in the next release in favor of the standard as defined in EIP-712. See https://git.io/fNzPl for more information on the new standard.')
+  if (payload.method === 'eth_requestAccounts') {
+    return this.enable()
   }
 
-  self.rpcEngine.handle(payload, cb)
+  this.rpcEngine.handle(payload, cb)
 }
 
 MetamaskInpageProvider.prototype._sendSync = function (payload) {
@@ -153,8 +187,145 @@ MetamaskInpageProvider.prototype._sendSync = function (payload) {
   }
 }
 
+/*
+ * Requests the user displays an account to the provider.
+ * EIP 1102 compatibility.
+ *
+ * @returns {Promise<Array<string>>} accounts - An array of hex-prefixed Ethereum addresses that the user identifies as.
+ */
+MetamaskInpageProvider.prototype.enable = function (opts) {
+
+  // Sorry, my build system was complaining about destructuring:
+  if (!opts) {
+    opts = {}
+  }
+
+  const defaultOpts = {
+    method: 'wallet_requestPermissions',
+    params: [{
+      'eth_accounts': {},
+    }],
+  }
+
+  const options = extend(opts, defaultOpts)
+
+  return new Promise((resolve, reject) => {
+    this.sendAsync({
+      method: 'wallet_requestPermissions',
+      params: [{
+        'eth_accounts': {},
+      }],
+    }, (err, res) => {
+
+      // A system error:
+      if (err) {
+        return reject(err)
+      }
+
+      // The user rejected the request:
+      if (res.error && res.error.code === 5) {
+        return reject(res.error)
+      }
+
+      if (typeof err !== 'undefined') {
+        reject({
+          message: err,
+          code: 4001,
+        })
+      }
+
+      isEnabled = true
+      return getAccounts(this)
+    })
+  })
+}
+
+/**
+ * Determines if MetaMask is unlocked by the user
+ *
+ * @returns {Promise<boolean>} - Promise resolving to true if MetaMask is currently unlocked
+ */
+MetamaskInpageProvider.prototype.isUnlocked = function () {
+  // TODO: Verify if this is sufficient. Currently unclear the utility of Dapps knowing the unlock state.
+  return this.isApproved
+}
+
+/**
+ * Determines if this domain is currently enabled
+ *
+ * @returns {boolean} - true if this domain is currently enabled
+ */
+MetamaskInpageProvider.prototype.isEnabled = function () {
+  return isEnabled
+}
+
+/**
+ * Determines if this domain is currently connected to MetaMask
+ *
+ * @returns {boolean} - true if this domain is currently enabled
+ */
 MetamaskInpageProvider.prototype.isConnected = function () {
-  return true
+  return isConnected
+}
+
+
+/**
+ * Determines if this domain has been previously approved
+ *
+ * @returns {Promise<boolean>} - Promise resolving to true if this domain has been previously approved
+ */
+MetamaskInpageProvider.prototype.isApproved = function () {
+  return new Promise((resolve, reject) => {
+    this.sendAsync({
+      method: 'wallet_requestPermissions',
+      params: [{
+        readYourProfile: {},
+        writeToYourProfile: {},
+      }],
+    }, (err, res) => {
+
+      // A system error:
+      if (err) {
+        return reject(err)
+      }
+
+      // The user rejected the request:
+      if (res.error && res.error.code === 5) {
+        return reject(res.error)
+      }
+
+      getAccounts(this)
+      .then(resolve)
+      .catch(reject)
+    })
+  })
+}
+
+MetamaskInpageProvider.prototype._subscribe = function () {
+  this.on('data', (error, { method, params }) => {
+    if (!error && method === 'eth_subscription') {
+      this.emit('notification', params.result)
+    }
+  })
+}
+
+
+function getAccounts(provider) {
+  return new Promise((resolve, reject) => {
+    provider.sendAsync({
+      method: 'eth_accounts',
+      params: [],
+    }, function (error, response) {
+      if (error) {
+        reject(error)
+      }
+      if (response.error) {
+        reject(response.error)
+      }
+      const accounts = response.result
+      resolve(accounts)
+    })
+  })
 }
 
 MetamaskInpageProvider.prototype.isMetaMask = true
@@ -162,9 +333,9 @@ MetamaskInpageProvider.prototype.isMetaMask = true
 // util
 
 function logStreamDisconnectWarning (remoteLabel, err) {
+  isConnected = false
   let warningMsg = `MetamaskInpageProvider - lost connection to ${remoteLabel}`
   if (err) warningMsg += '\n' + err.stack
-  console.warn(warningMsg)
   const listeners = this.listenerCount('error')
   if (listeners > 0) {
     this.emit('error', warningMsg)
