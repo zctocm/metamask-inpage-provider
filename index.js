@@ -193,29 +193,18 @@ MetamaskInpageProvider.prototype._sendSync = function (payload) {
  *
  * @returns {Promise<Array<string>>} accounts - An array of hex-prefixed Ethereum addresses that the user identifies as.
  */
-MetamaskInpageProvider.prototype.enable = function (opts) {
-
-  // Sorry, my build system was complaining about destructuring:
-  if (!opts) {
-    opts = {}
-  }
-
-  const defaultOpts = {
-    method: 'wallet_requestPermissions',
-    params: [{
-      'eth_accounts': {},
-    }],
-  }
-
-  const options = extend(opts, defaultOpts)
-
+MetamaskInpageProvider.prototype.enable = function (opts = {}) {
   return new Promise((resolve, reject) => {
-    this.sendAsync({
+    const defaultOpts = {
       method: 'wallet_requestPermissions',
       params: [{
         'eth_accounts': {},
       }],
-    }, (err, res) => {
+    }
+
+    const options = extend(opts, defaultOpts)
+
+    this.sendAsync(options, (err, res) => {
 
       // A system error:
       if (err) {
@@ -227,15 +216,17 @@ MetamaskInpageProvider.prototype.enable = function (opts) {
         return reject(res.error)
       }
 
-      if (typeof err !== 'undefined') {
-        reject({
-          message: err,
+      if (res.error) {
+        return reject({
+          message: res.error,
           code: 4001,
         })
       }
 
       isEnabled = true
-      return getAccounts(this)
+      this.getAccounts(this)
+      .then(resolve)
+      .catch(reject)
     })
   })
 }
@@ -294,7 +285,7 @@ MetamaskInpageProvider.prototype.isApproved = function () {
         return reject(res.error)
       }
 
-      getAccounts(this)
+      this.getAccounts(this)
       .then(resolve)
       .catch(reject)
     })
@@ -310,9 +301,9 @@ MetamaskInpageProvider.prototype._subscribe = function () {
 }
 
 
-function getAccounts(provider) {
+MetamaskInpageProvider.prototype.getAccounts = function () {
   return new Promise((resolve, reject) => {
-    provider.sendAsync({
+    this.sendAsync({
       method: 'eth_accounts',
       params: [],
     }, function (error, response) {
