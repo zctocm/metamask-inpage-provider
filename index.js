@@ -1,4 +1,5 @@
 const pump = require('pump')
+const capnode = require('capnode')
 const RpcEngine = require('json-rpc-engine')
 const createErrorMiddleware = require('./createErrorMiddleware')
 const createIdRemapMiddleware = require('json-rpc-engine/src/idRemapMiddleware')
@@ -87,6 +88,23 @@ function MetamaskInpageProvider (connectionStream) {
   // drizzle accidently breaking the `this` reference
   self.send = self.send.bind(self)
   self.sendAsync = self.sendAsync.bind(self)
+
+  // Add capnode provider method
+  const capmux = mux.createStream('capnode')
+  capnode.createClientFromStream(capmux)
+  .then((capnode) => {
+    self.capnode = capnode
+  })
+  .catch((reason) => {
+    logStreamDisconnectWarning('Capnode Connection')
+  })
+
+}
+
+MetamaskInpageProvider.prototype.getV2Api = async function () {
+  if (this.capnode) {
+    return this.capnode.getDeserializedRemoteApi()
+  }
 }
 
 MetamaskInpageProvider.prototype.receive = function (message) {

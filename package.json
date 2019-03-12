@@ -22,6 +22,7 @@
   },
   "homepage": "https://github.com/MetaMask/metamask-inpage-provider#readme",
   "dependencies": {
+    "capnode": "^2.2.0",
     "json-rpc-engine": "^3.7.4",
     "json-rpc-middleware-stream": "^2.1.0",
     "loglevel": "^1.6.1",
