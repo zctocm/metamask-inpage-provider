@@ -367,12 +367,10 @@ MetamaskInpageProvider.prototype._handleDisconnect = function (streamName, err) 
 
 // EIP-1193 accountsChanged
 MetamaskInpageProvider.prototype._handleAccountsChanged = function (accounts = []) {
-  console.log('DING', accounts) // TODO: delete
   if (
     (!accounts && !this.selectedAddress) ||
     this.selectedAddress !== accounts[0]
   ) {
-    console.log('updating selected address') // TODO: delete
     this.selectedAddress = accounts[0]
     this.emit('accountsChanged', accounts)
   }
