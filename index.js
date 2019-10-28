@@ -216,13 +216,12 @@ MetamaskInpageProvider.prototype._sendSync = function (payload) {
       break
 
     case 'eth_uninstallFilter':
-      self.sendAsync(payload, noop)
+      self.sendAsync(payload, () => {})
       result = true
       break
 
     case 'net_version':
-      const networkVersion = self.publicConfigStore.getState().networkVersion
-      result = networkVersion || null
+      result = self.networkVersion || null
       break
 
     default:
