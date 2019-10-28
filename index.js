@@ -28,6 +28,7 @@ function MetamaskInpageProvider (connectionStream) {
   self._sentWarnings = {
     enable: false,
     sendAsync: false,
+    sendSync: false,
     signTypedData: false,
   }
   self._sentSiteMetadata = false
@@ -143,14 +144,16 @@ MetamaskInpageProvider.prototype.isMetaMask = true
 MetamaskInpageProvider.prototype.send = function (methodOrPayload, paramsOrCallback) {
   const self = this
 
-  // Web3 1.0 backwards compatibility
+  // backwards compatibility
   if (
     !Array.isArray(methodOrPayload) &&
-    typeof methodOrPayload === 'object' &&
-    typeof paramsOrCallback === 'function'
+    typeof methodOrPayload === 'object'
   ) {
-    self._sendAsync(payload, callback)
-    return
+    if (paramsOrCallback) {
+      return self._sendAsync(methodOrPayload, paramsOrCallback)
+    } else {
+      return self._sendSync(methodOrPayload)
+    }
   }
 
   // Per our docs as of <= 5/31/2019, send accepts a payload and returns
@@ -172,7 +175,7 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, paramsOrCallb
   }
 
   if (!Array.isArray(params)) {
-    if (params) params = [params]
+    if (params) params = [params] // wrap params out of kindness
     else params = []
   }
 
@@ -188,6 +191,49 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, paramsOrCallb
       reject(error)
     }
   })
+}
+
+/**
+ * Backwards compatibility.
+ */
+MetamaskInpageProvider.prototype._sendSync = function (payload) {
+  const self = this
+
+  if (!self._sentWarnings.sendSync) {
+    console.warn(messages.warnings.sendSyncDeprecation)
+    self._sentWarnings.sendSync = true
+  }
+
+  let result
+  switch (payload.method) {
+
+    case 'eth_accounts':
+      result = self.selectedAddress ? [self.selectedAddress] : []
+      break
+
+    case 'eth_coinbase':
+      result = self.selectedAddress || null
+      break
+
+    case 'eth_uninstallFilter':
+      self.sendAsync(payload, noop)
+      result = true
+      break
+
+    case 'net_version':
+      const networkVersion = self.publicConfigStore.getState().networkVersion
+      result = networkVersion || null
+      break
+
+    default:
+      throw new Error(messages.errors.unsupportedSync)
+  }
+
+  return {
+    id: payload.id,
+    jsonrpc: payload.jsonrpc,
+    result,
+  }
 }
 
 /**
