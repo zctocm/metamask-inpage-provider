@@ -113,7 +113,7 @@ function MetamaskInpageProvider (connectionStream) {
 
   // json rpc notification listener
   jsonRpcConnection.events.on('notification', payload => {
-    if (payload.method === 'metamask_accountsChanged') {
+    if (payload.method === 'wallet_accountsChanged') {
       self._handleAccountsChanged(payload.result)
     } else {
       self.emit('data', null, payload)
