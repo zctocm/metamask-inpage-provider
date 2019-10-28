@@ -8,6 +8,7 @@ const asStream = require('obs-store/lib/asStream')
 const ObjectMultiplex = require('obj-multiplex')
 const { inherits } = require('util')
 const SafeEventEmitter = require('safe-event-emitter')
+const dequal = require('fast-deep-equal')
 
 const { sendSiteMetadata } = require('./siteMetadata')
 const {
@@ -33,9 +34,10 @@ function MetamaskInpageProvider (connectionStream) {
   }
   self._sentSiteMetadata = false
   self._isConnected = undefined
+  self._accounts = []
 
   // public state
-  self.selectedAddress = undefined
+  self.selectedAddress = null
   self.networkVersion = undefined
   self.chainId = undefined
 
@@ -132,54 +134,61 @@ function MetamaskInpageProvider (connectionStream) {
   setTimeout(() => self.emit('connect'))
 }
 
+MetamaskInpageProvider.prototype.isMetaMask = true
+
+/**
+ * Returns whether the inpage provider is connected to MetaMask.
+ */
 MetamaskInpageProvider.prototype.isConnected = function () {
   return self._isConnected
 }
 
-MetamaskInpageProvider.prototype.isMetaMask = true
-
 /**
- * EIP-1193 send, with backwards compatibility.
+ * Sends an RPC request to MetaMask. Resolves to the result of the method call.
+ * May reject with an error that must be caught be the caller.
+ * 
+ * @param {string} method - The method to call.
+ * @param {Array<any>} [params] - The method's parameters, if any.
+ * @returns {Promise<any>} - A promise resolving to the result of the method call.
  */
-MetamaskInpageProvider.prototype.send = function (methodOrPayload, paramsOrCallback) {
+MetamaskInpageProvider.prototype.send = function (method, params) {
   const self = this
 
   // backwards compatibility
   if (
-    !Array.isArray(methodOrPayload) &&
-    typeof methodOrPayload === 'object'
+    !Array.isArray(method) &&
+    typeof method === 'object'
   ) {
-    if (paramsOrCallback) {
-      return self._sendAsync(methodOrPayload, paramsOrCallback)
+    if (params) {
+      return self._sendAsync(method, params)
     } else {
-      return self._sendSync(methodOrPayload)
+      return self._sendSync(method)
     }
   }
 
-  // Per our docs as of <= 5/31/2019, send accepts a payload and returns
-  // a promise, however per EIP-1193, send should accept a method string
+  // Per our docs as of <= 5/31/2019, send accepts a payload, however per
+  // EIP-1193, send should accept a method string and a params array.
   // and params array. Here we support both.
-  let method, params
   if (
-    typeof methodOrPayload === 'object' &&
-    typeof methodOrPayload.method === 'string'
+    typeof method === 'object' &&
+    typeof method.method === 'string'
   ) {
-    method = methodOrPayload.method
-    params = methodOrPayload.params
-  } else if (typeof methodOrPayload === 'string') {
-    method = methodOrPayload
-    params = paramsOrCallback
-  } else {
+    method = method.method
+    params = method.params
+  } else if (typeof method !== 'string') {
     // throw invalid params error
     throw new Error(messages.errors.invalidParams)
   }
 
-  if (!Array.isArray(params)) {
-    if (params) params = [params] // wrap params out of kindness
-    else params = []
+  // specific handler for this
+  if (method === 'eth_requestAccounts') {
+    return self._requestAccounts()
   }
 
-  if (method === 'eth_requestAccounts') return self._requestAccounts()
+  // wrap params out of kindness
+  if (!Array.isArray(params)) {
+    params = params === undefined ? [] : [params]
+  }
 
   return new Promise((resolve, reject) => {
     try {
@@ -194,7 +203,38 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, paramsOrCallb
 }
 
 /**
- * Backwards compatibility.
+ * Backwards compatibility. Equivalent to: ethereum.send('eth_requestAccounts')
+ * 
+ * @returns {Promise<Array<string>>} - A promise that resolves to an array of addresses.
+ */
+MetamaskInpageProvider.prototype.enable = function () {
+  const self = this
+  if (!self._sentWarnings.enable) {
+    console.warn(messages.warnings.enableDeprecation)
+    self._sentWarnings.enable = true
+  }
+  return self._requestAccounts()
+}
+
+/**
+ * TO BE DEPRECATED.
+ * Backwards compatibility. ethereum.send() with callback.
+ * 
+ * @param {Object} payload - The RPC request object.
+ * @param {Function} callback - The callback function.
+ */
+MetamaskInpageProvider.prototype.sendAsync = function (payload, cb) {
+  const self = this
+
+  if (!self._sentWarnings.sendAsync) {
+    console.warn(messages.warnings.sendAsyncDeprecation)
+    self._sentWarnings.sendAsync = true
+  }
+  self._sendAsync(payload, cb)
+}
+
+/**
+ * Internal backwards compatibility method.
  */
 MetamaskInpageProvider.prototype._sendSync = function (payload) {
   const self = this
@@ -236,32 +276,7 @@ MetamaskInpageProvider.prototype._sendSync = function (payload) {
 }
 
 /**
- * Backwards compatibility method, to be deprecated.
- */
-MetamaskInpageProvider.prototype.enable = function () {
-  const self = this
-  if (!self._sentWarnings.enable) {
-    console.warn(messages.warnings.enableDeprecation)
-    self._sentWarnings.enable = true
-  }
-  return self._requestAccounts()
-}
-
-/**
- * Web3 1.0 backwards compatibility method.
- */
-MetamaskInpageProvider.prototype.sendAsync = function (payload, cb) {
-  const self = this
-  if (!self._sentWarnings.sendAsync) {
-    console.warn(messages.warnings.sendAsyncDeprecation)
-    self._sentWarnings.sendAsync = true
-  }
-  self._sendAsync(payload, cb)
-}
-
-/**
- * EIP-1102 eth_requestAccounts
- * Implemented here to remain EIP-1102-compliant with ocap permissions.
+ * Internal method for calling EIP-1102 eth_requestAccounts.
  * Attempts to call eth_accounts before requesting the permission.
  */
 MetamaskInpageProvider.prototype._requestAccounts = function () {
@@ -315,7 +330,9 @@ MetamaskInpageProvider.prototype._sendAsync = function (payload, userCallback) {
   const self = this
   let cb = userCallback
 
-  if (!payload.jsonrpc) payload.jsonrpc = '2.0'
+  if (!payload.jsonrpc) {
+    payload.jsonrpc = '2.0'
+  }
 
   if (!self._sentSiteMetadata) {
     sendSiteMetadata(self.rpcEngine)
@@ -334,17 +351,13 @@ MetamaskInpageProvider.prototype._sendAsync = function (payload, userCallback) {
     // legacy eth_accounts behavior
     cb = (err, res) => {
       if (err) {
-        self._handleAccountsChanged()
-        let code = err.code || res.error.code
-        // if error is unauthorized
-        if (code === 4100) {
+        const code = err.code || res.error.code
+        if (code === 4100) { // if error is unauthorized
           delete res.error
           res.result = []
-          return userCallback(null, res)
         }
-      } else {
-        self._handleAccountsChanged(res.result)
       }
+      self._handleAccountsChanged(res.result || [])
       userCallback(err, res)
     }
   }
@@ -352,6 +365,9 @@ MetamaskInpageProvider.prototype._sendAsync = function (payload, userCallback) {
   self.rpcEngine.handle(payload, cb)
 }
 
+/**
+ * Called when connection is lost to critical streams.
+ */
 MetamaskInpageProvider.prototype._handleDisconnect = function (streamName, err) {
   const self = this
   logStreamDisconnectWarning(streamName, err)
@@ -364,13 +380,28 @@ MetamaskInpageProvider.prototype._handleDisconnect = function (streamName, err) 
   self._isConnected = false
 }
 
-// EIP-1193 accountsChanged
-MetamaskInpageProvider.prototype._handleAccountsChanged = function (accounts = []) {
-  if (
-    (!accounts && !this.selectedAddress) ||
-    this.selectedAddress !== accounts[0]
-  ) {
-    this.selectedAddress = accounts[0]
+/**
+ * Called when accounts may have changed.
+ */
+MetamaskInpageProvider.prototype._handleAccountsChanged = function (accounts) {
+
+  // defensive programming
+  if (!Array.isArray(accounts)) {
+    console.error(
+      'MetaMask: Received non-array accounts parameter. Please report this bug.',
+      accounts
+    )
+    accounts = []
+  }
+
+  // emit accountsChanged if anything about the accounts array has changed
+  if (!dequal(self._accounts, accounts)) {
     this.emit('accountsChanged', accounts)
+    self._accounts = accounts
+  }
+
+  // handle selectedAddress
+  if (this.selectedAddress !== accounts[0]) {
+    this.selectedAddress = accounts[0] || null
   }
 }
