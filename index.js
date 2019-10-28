@@ -72,13 +72,29 @@ function MetamaskInpageProvider (connectionStream) {
   pump(
     mux.createStream('publicConfig'),
     asStream(self.publicConfigStore),
-    self._handleDisconnect.bind(self, 'MetaMask PublicConfigStore')
+    // RPC requests should still work if only this stream fails
+    logStreamDisconnectWarning.bind(self, 'MetaMask PublicConfigStore')
   )
 
   // ignore phishing warning message (handled elsewhere)
   mux.ignoreStream('phishing')
 
+  // setup own event listeners
+
+  // EIP-1193 subscriptions
+  self.on('data', (error, { method, params }) => {
+    if (!error && method === 'eth_subscription') {
+      self.emit('notification', params.result)
+    }
+  })
+
+  // EIP-1193 connect
+  self.on('connect', () => {
+    self._isConnected = true
+  })
+
   // connect to async provider
+
   const jsonRpcConnection = createJsonRpcStream()
   pump(
     jsonRpcConnection.stream,
@@ -94,20 +110,13 @@ function MetamaskInpageProvider (connectionStream) {
   rpcEngine.push(jsonRpcConnection.middleware)
   self.rpcEngine = rpcEngine
 
-  // forward json rpc notifications
-  jsonRpcConnection.events.on('notification', function(payload) {
-    self.emit('data', null, payload)
-  })
-
-  // EIP-1193 subscriptions
-  self.on('data', (error, { method, params }) => {
-    if (!error && method === 'eth_subscription') {
-      self.emit('notification', params.result)
+  // json rpc notification listener
+  jsonRpcConnection.events.on('notification', payload => {
+    if (payload.method === 'metamask_accountsChanged') {
+      self._handleAccountsChanged(payload.result)
+    } else {
+      self.emit('data', null, payload)
     }
-  })
-
-  self.on('connect', () => {
-    self._isConnected = true
   })
 
   // Work around for https://github.com/metamask/metamask-extension/issues/5459
@@ -280,7 +289,7 @@ MetamaskInpageProvider.prototype._sendAsync = function (payload, userCallback) {
     // legacy eth_accounts behavior
     cb = (err, res) => {
       if (err) {
-        self._handleAccountsChanged([])
+        self._handleAccountsChanged()
         let code = err.code || res.error.code
         // if error is unauthorized
         if (code === 4100) {
@@ -299,6 +308,7 @@ MetamaskInpageProvider.prototype._sendAsync = function (payload, userCallback) {
 }
 
 MetamaskInpageProvider.prototype._handleDisconnect = function (streamName, err) {
+  const self = this
   logStreamDisconnectWarning(streamName, err)
   if (self._isConnected) {
     self.emit('close', {
@@ -309,11 +319,15 @@ MetamaskInpageProvider.prototype._handleDisconnect = function (streamName, err) 
   self._isConnected = false
 }
 
-// EIP 1193 accountsChanged
-MetamaskInpageProvider.prototype._handleAccountsChanged = function (accounts) {
-  const self = this
-  if (self.selectedAddress !== accounts[0]) {
-    self.selectedAddress = accounts[0]
-    self.emit('accountsChanged', accounts)
+// EIP-1193 accountsChanged
+MetamaskInpageProvider.prototype._handleAccountsChanged = function (accounts = []) {
+  console.log('DING', accounts) // TODO: delete
+  if (
+    (!accounts && !this.selectedAddress) ||
+    this.selectedAddress !== accounts[0]
+  ) {
+    console.log('updating selected address') // TODO: delete
+    this.selectedAddress = accounts[0]
+    this.emit('accountsChanged', accounts)
   }
 }
