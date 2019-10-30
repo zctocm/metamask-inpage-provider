@@ -2,13 +2,14 @@ const pump = require('pump')
 const RpcEngine = require('json-rpc-engine')
 const createIdRemapMiddleware = require('json-rpc-engine/src/idRemapMiddleware')
 const createJsonRpcStream = require('json-rpc-middleware-stream')
-const LocalStorageStore = require('obs-store')
+const ObservableStore = require('obs-store')
 const asStream = require('obs-store/lib/asStream')
 const ObjectMultiplex = require('obj-multiplex')
 const { inherits } = require('util')
 const SafeEventEmitter = require('safe-event-emitter')
 const dequal = require('fast-deep-equal')
 
+const connectCapnode = require('./lib/connectCapnode')
 const messages = require('./messages')
 const { sendSiteMetadata } = require('./siteMetadata')
 const {
@@ -53,7 +54,7 @@ function MetamaskInpageProvider (connectionStream) {
   )
 
   // subscribe to metamask public config (one-way)
-  self.publicConfigStore = new LocalStorageStore({ storageKey: 'MetaMask-Config' })
+  self.publicConfigStore = new ObservableStore({ storageKey: 'MetaMask-Config' })
 
   // chainChanged and networkChanged events
   self.publicConfigStore.subscribe(function (state) {
@@ -70,6 +71,21 @@ function MetamaskInpageProvider (connectionStream) {
       self.emit('networkChanged', self.networkVersion)
     }
   })
+
+  const capStream = mux.createStream('cap')
+  const [capnode, remote] = connectCapnode()
+  pump(
+    remote,
+    capStream,
+    remote,
+    (err) => {
+      console.log('Problem with cap stream', err);
+    }
+  )
+
+  this.requestIndex = () => {
+    return capnode.requestIndex(remote);
+  }
 
   pump(
     mux.createStream('publicConfig'),
