@@ -1,4 +1,3 @@
-
 const pump = require('pump')
 const RpcEngine = require('json-rpc-engine')
 const createIdRemapMiddleware = require('json-rpc-engine/src/idRemapMiddleware')
@@ -16,7 +15,7 @@ const {
   logStreamDisconnectWarning,
   promiseCallback,
 } = require('./utils')
-const messages = require('./messages.json')
+const messages = require('./messages.js')
 
 module.exports = MetamaskInpageProvider
 
@@ -145,55 +144,62 @@ MetamaskInpageProvider.prototype.isConnected = function () {
 
 /**
  * Sends an RPC request to MetaMask. Resolves to the result of the method call.
- * May reject with an error that must be caught be the caller.
+ * May reject with an error that must be caught by the caller.
  * 
- * @param {string} method - The method to call.
- * @param {Array<any>} [params] - The method's parameters, if any.
+ * @param {(string|Object)} methodOrPayload - The method name, or the RPC request object.
+ * @param {Array<any>} [params] - If given a method name, the method's parameters.
  * @returns {Promise<any>} - A promise resolving to the result of the method call.
  */
-MetamaskInpageProvider.prototype.send = function (method, params) {
+MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
   const self = this
 
-  // backwards compatibility
-  if (
-    !Array.isArray(method) &&
-    typeof method === 'object'
-  ) {
-    if (params) {
-      return self._sendAsync(method, params)
-    } else {
-      return self._sendSync(method)
+  // construct payload object
+  let payload
+  if (params) {
+
+    // wrap params in array out of kindness
+    if (!Array.isArray(params)) {
+      params = params === undefined ? [] : [params]
     }
+
+    // method must be a string if params were supplied
+    // we will throw further down if it isn't
+    payload = {
+      method: methodOrPayload,
+      params,
+    }
+  } else {
+    payload = methodOrPayload
   }
 
-  // Per our docs as of <= 5/31/2019, send accepts a payload, however per
-  // EIP-1193, send should accept a method string and a params array.
-  // and params array. Here we support both.
+  // typecheck payload and payload.method
   if (
-    typeof method === 'object' &&
-    typeof method.method === 'string'
+    Array.isArray(payload) ||
+    typeof payload !== 'object' ||
+    typeof payload.method !== 'string'
   ) {
-    method = method.method
-    params = method.params
-  } else if (typeof method !== 'string') {
-    // throw invalid params error
-    throw new Error(messages.errors.invalidParams)
+    throw new Error(messages.errors.invalidParams(), payload)
   }
 
-  // specific handler for this
-  if (method === 'eth_requestAccounts') {
+  // backwards compatibility: "synchronous" methods -.-
+  if ([
+    'eth_accounts',
+    'eth_coinbase',
+    'eth_uninstallFilter',
+    'net_version',
+  ].includes(payload.method)) {
+    return self._sendSync(payload)
+  }
+
+  // specific handler for this method
+  if (payload.method === 'eth_requestAccounts') {
     return self._requestAccounts()
-  }
-
-  // wrap params out of kindness
-  if (!Array.isArray(params)) {
-    params = params === undefined ? [] : [params]
   }
 
   return new Promise((resolve, reject) => {
     try {
       self._sendAsync(
-        { method, params },
+        payload,
         promiseCallback(resolve, reject)
       )
     } catch (error) {
@@ -265,7 +271,7 @@ MetamaskInpageProvider.prototype._sendSync = function (payload) {
       break
 
     default:
-      throw new Error(messages.errors.unsupportedSync)
+      throw new Error(messages.errors.unsupportedSync(payload.method))
   }
 
   return {
