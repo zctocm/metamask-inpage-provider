@@ -2,7 +2,7 @@ const pump = require('pump')
 const RpcEngine = require('json-rpc-engine')
 const createIdRemapMiddleware = require('json-rpc-engine/src/idRemapMiddleware')
 const createJsonRpcStream = require('json-rpc-middleware-stream')
-const LocalStorageStore = require('obs-store')
+const ObservableStore = require('obs-store')
 const asStream = require('obs-store/lib/asStream')
 const ObjectMultiplex = require('obj-multiplex')
 const { inherits } = require('util')
@@ -53,7 +53,7 @@ function MetamaskInpageProvider (connectionStream) {
   )
 
   // subscribe to metamask public config (one-way)
-  self.publicConfigStore = new LocalStorageStore({ storageKey: 'MetaMask-Config' })
+  self.publicConfigStore = new ObservableStore({ storageKey: 'MetaMask-Config' })
 
   // chainChanged and networkChanged events
   self.publicConfigStore.subscribe(function (state) {
