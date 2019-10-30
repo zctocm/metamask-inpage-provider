@@ -9,13 +9,13 @@ const { inherits } = require('util')
 const SafeEventEmitter = require('safe-event-emitter')
 const dequal = require('fast-deep-equal')
 
+const messages = require('./messages')
 const { sendSiteMetadata } = require('./siteMetadata')
 const {
   createErrorMiddleware,
   logStreamDisconnectWarning,
   promiseCallback,
 } = require('./utils')
-const messages = require('./messages.js')
 
 module.exports = MetamaskInpageProvider
 
@@ -155,11 +155,11 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
 
   // construct payload object
   let payload
-  if (params) {
+  if (params !== undefined) {
 
     // wrap params in array out of kindness
     if (!Array.isArray(params)) {
-      params = params === undefined ? [] : [params]
+      params = [params]
     }
 
     // method must be a string if params were supplied
@@ -169,7 +169,25 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
       params,
     }
   } else {
-    payload = methodOrPayload
+    if (typeof methodOrPayload === 'string') {
+      payload = {
+        method: methodOrPayload,
+        params,
+      }
+    } else {
+
+      payload = methodOrPayload
+
+      // backwards compatibility: "synchronous" methods -.-
+      if ([
+        'eth_accounts',
+        'eth_coinbase',
+        'eth_uninstallFilter',
+        'net_version',
+      ].includes(payload.method)) {
+        return self._sendSync(payload)
+      }
+    }
   }
 
   // typecheck payload and payload.method
@@ -179,16 +197,6 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
     typeof payload.method !== 'string'
   ) {
     throw new Error(messages.errors.invalidParams(), payload)
-  }
-
-  // backwards compatibility: "synchronous" methods -.-
-  if ([
-    'eth_accounts',
-    'eth_coinbase',
-    'eth_uninstallFilter',
-    'net_version',
-  ].includes(payload.method)) {
-    return self._sendSync(payload)
   }
 
   // specific handler for this method
@@ -293,7 +301,7 @@ MetamaskInpageProvider.prototype._requestAccounts = function () {
       {
         method: 'eth_accounts',
       },
-      promiseCallback(resolve, reject, true)
+      promiseCallback(resolve, reject)
     )
   })
   .then(result => {
@@ -317,7 +325,7 @@ MetamaskInpageProvider.prototype._requestAccounts = function () {
             {
               method: 'eth_accounts',
             },
-            promiseCallback(resolve, reject, true)
+            promiseCallback(resolve, reject)
           )
         })
       })
