@@ -14,10 +14,22 @@ const { sendSiteMetadata } = require('./siteMetadata')
 const {
   createErrorMiddleware,
   logStreamDisconnectWarning,
-  promiseCallback,
+  makeThenable,
 } = require('./utils')
 
+// resolve response.result, reject errors
+const rpcPromiseCallback = (resolve, reject) => (error, response) => {
+  error || response.error
+  ? reject(error || response.error)
+  : resolve(response.result)
+}
+
 module.exports = MetamaskInpageProvider
+
+/**
+ * TODO:deprecate
+ * 2019-12-09: _sendSync and related functionality
+ */
 
 inherits(MetamaskInpageProvider, SafeEventEmitter)
 
@@ -208,7 +220,7 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
     try {
       self._sendAsync(
         payload,
-        promiseCallback(resolve, reject)
+        rpcPromiseCallback(resolve, reject)
       )
     } catch (error) {
       reject(error)
@@ -282,11 +294,12 @@ MetamaskInpageProvider.prototype._sendSync = function (payload) {
       throw new Error(messages.errors.unsupportedSync(payload.method))
   }
 
-  return {
+  // behaves like a Promise if someone calls .then on it :evil_laugh:
+  return makeThenable({
     id: payload.id,
     jsonrpc: payload.jsonrpc,
     result,
-  }
+  }, 'result')
 }
 
 /**
@@ -301,7 +314,7 @@ MetamaskInpageProvider.prototype._requestAccounts = function () {
       {
         method: 'eth_accounts',
       },
-      promiseCallback(resolve, reject)
+      rpcPromiseCallback(resolve, reject)
     )
   })
   .then(result => {
@@ -316,7 +329,7 @@ MetamaskInpageProvider.prototype._requestAccounts = function () {
             method: 'wallet_requestPermissions',
             params: [{ eth_accounts: {} }],
           },
-          promiseCallback(resolve, reject)
+          rpcPromiseCallback(resolve, reject)
         )
       })
       .then(() => {
@@ -325,7 +338,7 @@ MetamaskInpageProvider.prototype._requestAccounts = function () {
             {
               method: 'eth_accounts',
             },
-            promiseCallback(resolve, reject)
+            rpcPromiseCallback(resolve, reject)
           )
         })
       })
@@ -384,7 +397,7 @@ MetamaskInpageProvider.prototype._sendAsync = function (payload, userCallback) {
  */
 MetamaskInpageProvider.prototype._handleDisconnect = function (streamName, err) {
   const self = this
-  logStreamDisconnectWarning(streamName, err)
+  logStreamDisconnectWarning.bind(self)(streamName, err)
   if (self._isConnected) {
     self.emit('close', {
       code: 1011,
