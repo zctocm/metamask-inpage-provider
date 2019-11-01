@@ -1,6 +1,5 @@
 
 const test = require('tape')
-const dequal = require('fast-deep-equal')
 
 const { makeThenable } = require('../utils')
 
@@ -34,13 +33,18 @@ test('makeThenable objects are Promise ducks', async t => {
         t.ok(v2 instanceof Promise, 'value1 instanceof Promise -> value2 instanceof Promise')
         const r1 = await v1
         const r2 = await v2
-        t.ok(dequal(r1, r2), 'promises resolve to the same values')
+        t.deepEqual(r1, r2, 'promises resolve to the same values')
       // } else if (v1 === target) {
       } else {
-        t.ok(dequal(v1, v2), 'values are equal')
+        t.deepEqual(v1, v2, 'values are equal')
       }
     }
   })
+
+  const response = customThenable({ ...responseObject })
+  const stringResponse = JSON.stringify(response, null, 2)
+  t.comment('serialized thenable response:\n' + stringResponse)
+  t.deepEqual(JSON.parse(stringResponse), response, 'serializing and deserializing preserves response without "then"')
 
   t.end()
 
