@@ -27,67 +27,76 @@ const rpcPromiseCallback = (resolve, reject) => (error, response) => {
 module.exports = MetamaskInpageProvider
 
 /**
- * TODO:deprecate
- * 2019-12-09: _sendSync and related functionality
+ * TODO:deprecate:2019-12-16
+ *  _sendSync and related functionality
  */
 
 inherits(MetamaskInpageProvider, SafeEventEmitter)
 
-function MetamaskInpageProvider (connectionStream) {
-  const self = this
+// private state, kept here in part for use in the _metamask proxy
+const _state = {
 
-  // private state
-  self._sentWarnings = {
+  sentWarnings: {
+    autoReload: false,
     enable: false,
+    experimentalMethods: false,
     sendAsync: false,
     sendSync: false,
     signTypedData: false,
-  }
-  self._sentSiteMetadata = false
-  self._isConnected = undefined
-  self._accounts = []
+  },
+  sentSiteMetadata: false,
+  isConnected: undefined,
+  accounts: [],
+  isUnlocked: false,
+}
 
-  // public state
-  self.selectedAddress = null
-  self.networkVersion = undefined
-  self.chainId = undefined
+function MetamaskInpageProvider (connectionStream) {
 
   // super constructor
-  SafeEventEmitter.call(self)
+  SafeEventEmitter.call(this)
+
+  // public state
+  this.selectedAddress = null
+  this.networkVersion = undefined
+  this.chainId = undefined
 
   // setup connectionStream multiplexing
-  const mux = self.mux = new ObjectMultiplex()
+  const mux = this.mux = new ObjectMultiplex()
   pump(
     connectionStream,
     mux,
     connectionStream,
-    self._handleDisconnect.bind(self, 'MetaMask')
+    this._handleDisconnect.bind(this, 'MetaMask')
   )
 
   // subscribe to metamask public config (one-way)
-  self.publicConfigStore = new ObservableStore({ storageKey: 'MetaMask-Config' })
+  this.publicConfigStore = new ObservableStore({ storageKey: 'MetaMask-Config' })
 
   // chainChanged and networkChanged events
-  self.publicConfigStore.subscribe(function (state) {
+  this.publicConfigStore.subscribe(function (state) {
+
+    if ('isUnlocked' in state && state.isUnlocked !== _state.isUnlocked) {
+      _state.isUnlocked = state.isUnlocked
+    }
 
     // Emit chainChanged event on chain change
-    if ('chainId' in state && state.chainId !== self.chainId) {
-      self.chainId = state.chainId
-      self.emit('chainChanged', self.chainId)
+    if ('chainId' in state && state.chainId !== this.chainId) {
+      this.chainId = state.chainId
+      this.emit('chainChanged', this.chainId)
     }
 
     // Emit networkChanged event on network change
-    if ('networkVersion' in state && state.networkVersion !== self.networkVersion) {
-      self.networkVersion = state.networkVersion
-      self.emit('networkChanged', self.networkVersion)
+    if ('networkVersion' in state && state.networkVersion !== this.networkVersion) {
+      this.networkVersion = state.networkVersion
+      this.emit('networkChanged', this.networkVersion)
     }
   })
 
   pump(
     mux.createStream('publicConfig'),
-    asStream(self.publicConfigStore),
+    asStream(this.publicConfigStore),
     // RPC requests should still work if only this stream fails
-    logStreamDisconnectWarning.bind(self, 'MetaMask PublicConfigStore')
+    logStreamDisconnectWarning.bind(this, 'MetaMask PublicConfigStore')
   )
 
   // ignore phishing warning message (handled elsewhere)
@@ -96,15 +105,15 @@ function MetamaskInpageProvider (connectionStream) {
   // setup own event listeners
 
   // EIP-1193 subscriptions
-  self.on('data', (error, { method, params }) => {
+  this.on('data', (error, { method, params }) => {
     if (!error && method === 'eth_subscription') {
-      self.emit('notification', params.result)
+      this.emit('notification', params.result)
     }
   })
 
   // EIP-1193 connect
-  self.on('connect', () => {
-    self._isConnected = true
+  this.on('connect', () => {
+    _state.isConnected = true
   })
 
   // connect to async provider
@@ -114,7 +123,7 @@ function MetamaskInpageProvider (connectionStream) {
     jsonRpcConnection.stream,
     mux.createStream('provider'),
     jsonRpcConnection.stream,
-    self._handleDisconnect.bind(self, 'MetaMask RpcProvider')
+    this._handleDisconnect.bind(this, 'MetaMask RpcProvider')
   )
 
   // handle RPC requests via dapp-side rpc engine
@@ -122,28 +131,36 @@ function MetamaskInpageProvider (connectionStream) {
   rpcEngine.push(createIdRemapMiddleware())
   rpcEngine.push(createErrorMiddleware())
   rpcEngine.push(jsonRpcConnection.middleware)
-  self.rpcEngine = rpcEngine
+  this.rpcEngine = rpcEngine
 
   // json rpc notification listener
   jsonRpcConnection.events.on('notification', payload => {
     if (payload.method === 'wallet_accountsChanged') {
-      self._handleAccountsChanged(payload.result)
+      this._handleAccountsChanged(payload.result)
     } else {
-      self.emit('data', null, payload)
+      this.emit('data', null, payload)
     }
   })
 
-  // Work around for https://github.com/metamask/metamask-extension/issues/5459
-  // drizzle accidentally breaking the `this` reference
-  self.enable = self.enable.bind(self)
-  self.send = self.send.bind(self)
-  self.sendAsync = self.sendAsync.bind(self)
-  self._sendAsync = self._sendAsync.bind(self)
-  self._requestAccounts = self._requestAccounts.bind(self)
-
   // indicate that we've connected, for EIP-1193 compliance
-  setTimeout(() => self.emit('connect'))
+  setTimeout(() => this.emit('connect'))
+
+  // TODO:deprecate:2019-12-16
+  // wait a second to attempt to send this, so that the warning can be silenced
+  // moved this here because there's another warning in .enable() discouraging
+  // the use thereof per EIP 1102
+  setTimeout(() => {
+    if (this.autoRefreshOnNetworkChange && !_state.sentWarnings.autoReload) {
+      console.warn(messages.warnings.autoReloadDeprecation)
+      _state.sentWarnings.autoReload = true
+    }
+  }, 1000)
 }
+
+// TODO:deprecate:2019-12-16
+// give the dapps control of a refresh they can toggle this off on the window.ethereum
+// this will be default true so it does not break any old apps.
+MetamaskInpageProvider.prototype.autoRefreshOnNetworkChange = true
 
 MetamaskInpageProvider.prototype.isMetaMask = true
 
@@ -151,8 +168,34 @@ MetamaskInpageProvider.prototype.isMetaMask = true
  * Returns whether the inpage provider is connected to MetaMask.
  */
 MetamaskInpageProvider.prototype.isConnected = function () {
-  return self._isConnected
+  return _state.isConnected
 }
+
+// add metamask-specific convenience methods
+MetamaskInpageProvider.prototype._metamask = new Proxy(
+  {
+
+    /**
+     * Determines if MetaMask is unlocked by the user.
+     *
+     * @returns {Promise<boolean>} - Promise resolving to true if MetaMask is currently unlocked
+     */
+    isUnlocked: async function () {
+      return _state.isUnlocked
+    },
+  },
+  {
+
+    get: function (obj, prop) {
+
+      if (!_state.sentWarnings.experimentalMethods) {
+        console.warn(messages.warnings.experimentalMethods)
+        _state.sentWarnings.experimentalMethods = true
+      }
+      return obj[prop]
+    },
+  }
+)
 
 /**
  * Sends an RPC request to MetaMask. Resolves to the result of the method call.
@@ -163,7 +206,6 @@ MetamaskInpageProvider.prototype.isConnected = function () {
  * @returns {Promise<any>} - A promise resolving to the result of the method call.
  */
 MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
-  const self = this
 
   // construct payload object
   let payload
@@ -197,7 +239,7 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
         'eth_uninstallFilter',
         'net_version',
       ].includes(payload.method)) {
-        return self._sendSync(payload)
+        return this._sendSync(payload)
       }
     }
   }
@@ -213,12 +255,12 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
 
   // specific handler for this method
   if (payload.method === 'eth_requestAccounts') {
-    return self._requestAccounts()
+    return this._requestAccounts()
   }
 
   return new Promise((resolve, reject) => {
     try {
-      self._sendAsync(
+      this._sendAsync(
         payload,
         rpcPromiseCallback(resolve, reject)
       )
@@ -234,12 +276,12 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
  * @returns {Promise<Array<string>>} - A promise that resolves to an array of addresses.
  */
 MetamaskInpageProvider.prototype.enable = function () {
-  const self = this
-  if (!self._sentWarnings.enable) {
+
+  if (!_state.sentWarnings.enable) {
     console.warn(messages.warnings.enableDeprecation)
-    self._sentWarnings.enable = true
+    _state.sentWarnings.enable = true
   }
-  return self._requestAccounts()
+  return this._requestAccounts()
 }
 
 /**
@@ -250,51 +292,49 @@ MetamaskInpageProvider.prototype.enable = function () {
  * @param {Function} callback - The callback function.
  */
 MetamaskInpageProvider.prototype.sendAsync = function (payload, cb) {
-  const self = this
 
-  if (!self._sentWarnings.sendAsync) {
+  if (!_state.sentWarnings.sendAsync) {
     console.warn(messages.warnings.sendAsyncDeprecation)
-    self._sentWarnings.sendAsync = true
+    _state.sentWarnings.sendAsync = true
   }
-  self._sendAsync(payload, cb)
+  this._sendAsync(payload, cb)
 }
 
 /**
  * Internal backwards compatibility method.
  */
 MetamaskInpageProvider.prototype._sendSync = function (payload) {
-  const self = this
 
-  if (!self._sentWarnings.sendSync) {
+  if (!_state.sentWarnings.sendSync) {
     console.warn(messages.warnings.sendSyncDeprecation)
-    self._sentWarnings.sendSync = true
+    _state.sentWarnings.sendSync = true
   }
 
   let result
   switch (payload.method) {
 
     case 'eth_accounts':
-      result = self.selectedAddress ? [self.selectedAddress] : []
+      result = this.selectedAddress ? [this.selectedAddress] : []
       break
 
     case 'eth_coinbase':
-      result = self.selectedAddress || null
+      result = this.selectedAddress || null
       break
 
     case 'eth_uninstallFilter':
-      self.sendAsync(payload, () => {})
+      this.sendAsync(payload, () => {})
       result = true
       break
 
     case 'net_version':
-      result = self.networkVersion || null
+      result = this.networkVersion || null
       break
 
     default:
       throw new Error(messages.errors.unsupportedSync(payload.method))
   }
 
-  // behaves like a Promise if someone calls .then on it :evil_laugh:
+  // looks like a plain object, but behaves like a Promise if someone calls .then on it :evil_laugh:
   return makeThenable({
     id: payload.id,
     jsonrpc: payload.jsonrpc,
@@ -307,10 +347,9 @@ MetamaskInpageProvider.prototype._sendSync = function (payload) {
  * Attempts to call eth_accounts before requesting the permission.
  */
 MetamaskInpageProvider.prototype._requestAccounts = function () {
-  const self = this
 
   return new Promise((resolve, reject) => {
-    self._sendAsync(
+    this._sendAsync(
       {
         method: 'eth_accounts',
       },
@@ -323,7 +362,7 @@ MetamaskInpageProvider.prototype._requestAccounts = function () {
       result.length === 0
     ) {
       return new Promise((resolve, reject) => {
-        self._sendAsync(
+        this._sendAsync(
           {
             jsonrpc: '2.0',
             method: 'wallet_requestPermissions',
@@ -334,7 +373,7 @@ MetamaskInpageProvider.prototype._requestAccounts = function () {
       })
       .then(() => {
         return new Promise((resolve, reject) => {
-          self._sendAsync(
+          this._sendAsync(
             {
               method: 'eth_accounts',
             },
@@ -354,24 +393,24 @@ MetamaskInpageProvider.prototype._requestAccounts = function () {
  * Also remap ids inbound and outbound.
  */
 MetamaskInpageProvider.prototype._sendAsync = function (payload, userCallback) {
-  const self = this
+
   let cb = userCallback
 
   if (!payload.jsonrpc) {
     payload.jsonrpc = '2.0'
   }
 
-  if (!self._sentSiteMetadata) {
-    sendSiteMetadata(self.rpcEngine)
-    self._sentSiteMetadata = true
+  if (!_state.sentSiteMetadata) {
+    sendSiteMetadata(this.rpcEngine)
+    _state.sentSiteMetadata = true
   }
 
   if (
     payload.method === 'eth_signTypedData' &&
-    !self._sentWarnings.signTypedData
+    !_state.sentWarnings.signTypedData
   ) {
     console.warn(messages.warnings.signTypedDataDeprecation)
-    self._sentWarnings.signTypedData = true
+    _state.sentWarnings.signTypedData = true
 
   } else if (payload.method === 'eth_accounts') {
 
@@ -384,27 +423,27 @@ MetamaskInpageProvider.prototype._sendAsync = function (payload, userCallback) {
           res.result = []
         }
       }
-      self._handleAccountsChanged(res.result || [])
+      this._handleAccountsChanged(res.result || [])
       userCallback(err, res)
     }
   }
 
-  self.rpcEngine.handle(payload, cb)
+  this.rpcEngine.handle(payload, cb)
 }
 
 /**
  * Called when connection is lost to critical streams.
  */
 MetamaskInpageProvider.prototype._handleDisconnect = function (streamName, err) {
-  const self = this
-  logStreamDisconnectWarning.bind(self)(streamName, err)
-  if (self._isConnected) {
-    self.emit('close', {
+
+  logStreamDisconnectWarning.bind(this)(streamName, err)
+  if (_state.isConnected) {
+    this.emit('close', {
       code: 1011,
       reason: 'MetaMask background communication error.',
     })
   }
-  self._isConnected = false
+  _state.isConnected = false
 }
 
 /**
@@ -422,13 +461,19 @@ MetamaskInpageProvider.prototype._handleAccountsChanged = function (accounts) {
   }
 
   // emit accountsChanged if anything about the accounts array has changed
-  if (!dequal(self._accounts, accounts)) {
+  if (!dequal(_state.accounts, accounts)) {
     this.emit('accountsChanged', accounts)
-    self._accounts = accounts
+    _state.accounts = accounts
   }
 
   // handle selectedAddress
   if (this.selectedAddress !== accounts[0]) {
     this.selectedAddress = accounts[0] || null
+  }
+
+  // TODO:deprecate:2019-12-16
+  // handle web3
+  if (window.web3) {
+    window.web3.eth.defaultAccount = this.selectedAddress
   }
 }

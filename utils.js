@@ -55,10 +55,10 @@ function logStreamDisconnectWarning (remoteLabel, err) {
 }
 
 /**
- * TODO:deprecate
- * Adds a hidden "then" property to the given object. If the given object
- * is returned from a function, it will behave like a plain object. If the
- * caller expects a Promise, it will behave like a Promise that resolves
+ * TODO:deprecate:2019-12-16
+ * Adds hidden "then" and "catch" properties to the given object. If the given
+ * object is returned from a function, it will behave like a plain object. If
+ * the caller expects a Promise, it will behave like a Promise that resolves
  * to the value of the indicated property.
  * 
  * @param {Object} obj - The object to make thenable.
@@ -71,6 +71,9 @@ function makeThenable (obj, prop) {
     configurable: true, writable: true, enumerable: false,
   }
 
+  // strange wrapping of Promise functions to fully emulate .then behavior,
+  // specifically Promise chaining
+  // there may be a simpler way of doing it, but this works
   const thenFunction = (consumerResolve, consumerCatch) => {
     return Promise.resolve().then(() => consumerResolve(obj[prop]), consumerCatch)
   }
