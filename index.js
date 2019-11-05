@@ -191,6 +191,27 @@ MetamaskInpageProvider.prototype._metamask = new Proxy(
     isUnlocked: async function () {
       return _state.isUnlocked
     },
+
+    // TODO:deprecate:2019-12-16 isEnabled, isApproved
+    /**
+     * Deprecated. Will be removed on 2019-12-16.
+     * Synchronously determines if this domain is currently enabled, with a potential false negative if called to soon
+     *
+     * @returns {boolean} - returns true if this domain is currently enabled
+     */
+    isEnabled: function () {
+      return Array.isArray(_state.accounts) && _state.accounts.length > 0 
+    },
+
+    /**
+     * Deprecated. Will be removed on 2019-12-16.
+     * Asynchronously determines if this domain is currently enabled
+     *
+     * @returns {Promise<boolean>} - Promise resolving to true if this domain is currently enabled
+     */
+    isApproved: async function () {
+      return Array.isArray(_state.accounts) && _state.accounts.length > 0 
+    },
   },
   {
 
