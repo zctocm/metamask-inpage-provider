@@ -40,6 +40,7 @@ const _state = {
     autoReload: false,
     enable: false,
     experimentalMethods: false,
+    isConnected: false,
     sendAsync: false,
     sendSync: false,
     signTypedData: false,
@@ -166,9 +167,15 @@ MetamaskInpageProvider.prototype.autoRefreshOnNetworkChange = true
 MetamaskInpageProvider.prototype.isMetaMask = true
 
 /**
+ * Deprecated.
  * Returns whether the inpage provider is connected to MetaMask.
  */
 MetamaskInpageProvider.prototype.isConnected = function () {
+
+  if (!_state.sentWarnings.isConnected) {
+    console.warn(messages.warnings.isConnectedDeprecation)
+    _state.sentWarnings.isConnected = true
+  }
   return _state.isConnected
 }
 
@@ -206,7 +213,7 @@ MetamaskInpageProvider.prototype._metamask = new Proxy(
  * @param {Array<any>} [params] - If given a method name, the method's parameters.
  * @returns {Promise<any>} - A promise resolving to the result of the method call.
  */
-MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
+MetamaskInpageProvider.prototype.send = function (methodOrPayload, params = []) {
 
   // construct payload object
   let payload
@@ -224,6 +231,7 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
       params,
     }
   } else {
+
     if (typeof methodOrPayload === 'string') {
       payload = {
         method: methodOrPayload,
@@ -272,7 +280,8 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
 }
 
 /**
- * Backwards compatibility. Equivalent to: ethereum.send('eth_requestAccounts')
+ * Deprecated.
+ * Equivalent to: ethereum.send('eth_requestAccounts')
  * 
  * @returns {Promise<Array<string>>} - A promise that resolves to an array of addresses.
  */
@@ -286,7 +295,7 @@ MetamaskInpageProvider.prototype.enable = function () {
 }
 
 /**
- * TO BE DEPRECATED.
+ * Deprecated.
  * Backwards compatibility. ethereum.send() with callback.
  * 
  * @param {Object} payload - The RPC request object.
@@ -302,6 +311,7 @@ MetamaskInpageProvider.prototype.sendAsync = function (payload, cb) {
 }
 
 /**
+ * Deprecated.
  * Internal backwards compatibility method.
  */
 MetamaskInpageProvider.prototype._sendSync = function (payload) {
