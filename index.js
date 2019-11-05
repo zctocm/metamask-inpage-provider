@@ -83,6 +83,7 @@ function MetamaskInpageProvider (connectionStream) {
     if ('chainId' in state && state.chainId !== this.chainId) {
       this.chainId = state.chainId
       this.emit('chainChanged', this.chainId)
+      this.emit('chainIdChanged', this.chainId) // TODO:deprecate:2019-12-16
     }
 
     // Emit networkChanged event on network change
