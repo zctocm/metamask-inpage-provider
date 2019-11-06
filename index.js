@@ -234,7 +234,7 @@ MetamaskInpageProvider.prototype._metamask = new Proxy(
  * @param {Array<any>} [params] - If given a method name, the method's parameters.
  * @returns {Promise<any>} - A promise resolving to the result of the method call.
  */
-MetamaskInpageProvider.prototype.send = function (methodOrPayload, params = []) {
+MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
 
   // construct payload object
   let payload
@@ -262,7 +262,8 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params = []) 
 
       payload = methodOrPayload
 
-      // backwards compatibility: "synchronous" methods -.-
+      // TODO:deprecate:2019-12-16
+      // backwards compatibility: "synchronous" methods
       if ([
         'eth_accounts',
         'eth_coinbase',
