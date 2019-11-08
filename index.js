@@ -249,6 +249,113 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
 }
 
 /**
+ * ethereum.authorize result
+ * @typedef {Object} AuthorizationResponse
+ * @property {Array<string>} accounts - The available accounts.
+ * @property {Array<Object>} permissions - The granted permissions.
+ * @property {Array<string>} plugin - The available plugins.
+ */
+
+/**
+ * ethereum.enable with permissions and plugins
+ * 
+ * @returns {AuthorizationResponse} - A promise that resolves to an object with:
+ * granted permissions and installed plugins.
+ */
+MetamaskInpageProvider.prototype.authorize = async function (requestedPermissions) {
+
+  // input validation
+  if (
+    typeof requestedPermissions !== 'object' ||
+    Array.isArray(requestedPermissions) ||
+    Object.keys(requestedPermissions).length === 0
+  ) {
+    throw new Error('Invalid Params: Expected permissions request object with at least one permission.')
+  }
+
+  // find requested plugins, if any
+  const requestedPlugins = Object.keys(requestedPermissions).filter(
+    p => p.startsWith('wallet_plugin_')
+  )
+
+  // request permissions, then install plugins, if any
+  let permissions
+  return new Promise(async (resolve, reject) => {
+
+    this._sendAsync(
+      {
+        method: 'wallet_requestPermissions',
+        params: [requestedPermissions],
+      },
+      rpcPromiseCallback(resolve, reject)
+    )
+  })
+  .then(perms => {
+
+    permissions = perms
+
+    // just return the permissions if no plugins were requested
+    if (requestedPlugins.length === 0) {
+      return getAuthorizeReturnObject(permissions)
+    }
+
+    const permittedPlugins = permissions.map(perm => perm.parentCapability)
+      .filter(name => name.startsWith('wallet_plugin_'))
+    
+    const grantedPlugins = requestedPlugins.filter(name => permittedPlugins.includes(name))
+
+    // just return the permissions if no plugins were granted
+    if (grantedPlugins.length === 0) {
+      return getAuthorizeReturnObject(permissions)
+    }
+
+    const installParam = grantedPlugins.reduce((acc, name) => {
+      acc[name] = {}
+      return acc
+    }, {})
+
+    // attempt to install newly granted plugins
+    return new Promise(async (resolve, reject) => {
+      
+      this._sendAsync(
+        {
+          method: 'wallet_installPlugins',
+          params: [installParam],
+        },
+        rpcPromiseCallback(resolve, reject)
+      )
+    })
+    // just return the permissions and the installed plugins on success
+    .then(installedPlugins => {
+      return getAuthorizeReturnObject(permissions, installedPlugins)
+    })
+    .catch(error => {
+      // if plugin installation fails, still return the permissions
+      if (error.code === 4301) { // plugin installation failed error
+        console.error(error)
+        return getAuthorizeReturnObject(permissions)
+      }
+      else throw error
+    })
+  })
+}
+
+// ethereum.authorize(permissions) helper
+function getAuthorizeReturnObject (
+  permissions, plugins = [],
+) {
+
+  // TODO: fixed after LoginPerSite merge/rebase (use named caveats)
+  let accounts = []
+  const accPerm = permissions.find(p => p.parentCapability === 'eth_accounts')
+  if (accPerm && accPerm.caveats && accPerm.caveats.length > 0) {
+    accounts = accPerm.caveats[0].value
+  }
+
+  return { permissions, accounts, plugins }
+}
+
+/**
  * Deprecated.
  * Equivalent to: ethereum.send('eth_requestAccounts')
  *
