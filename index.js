@@ -22,7 +22,9 @@ const {
 const rpcPromiseCallback = (resolve, reject) => (error, response) => {
   error || response.error
   ? reject(error || response.error)
-  : resolve(response.result)
+  : Array.isArray(response)
+    ? resolve(response)
+    : resolve(response.result)
 }
 
 module.exports = MetamaskInpageProvider
