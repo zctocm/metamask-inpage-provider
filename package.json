@@ -4,7 +4,9 @@
   "description": "An ethereum provider that connects over a WebExtension port.",
   "main": "index.js",
   "scripts": {
-    "test": "node test/*"
+    "test": "node test/*",
+    "lint": "eslint . --ext js,json",
+    "lint:fix": "eslint . --ext js,json --fix"
   },
   "author": "MetaMask",
   "license": "MIT",
@@ -22,6 +24,7 @@
   },
   "homepage": "https://github.com/MetaMask/metamask-inpage-provider#readme",
   "dependencies": {
+    "eth-json-rpc-errors": "^2.0.0",
     "fast-deep-equal": "^2.0.1",
     "json-rpc-engine": "^5.1.5",
     "json-rpc-middleware-stream": "^2.1.1",
@@ -32,6 +35,8 @@
     "safe-event-emitter": "^1.0.1"
   },
   "devDependencies": {
+    "eslint": "^6.6.0",
+    "eslint-plugin-json": "^2.0.1",
     "tape": "^4.11.0"
   }
 }

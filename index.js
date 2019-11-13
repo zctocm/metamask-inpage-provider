@@ -8,6 +8,7 @@ const ObjectMultiplex = require('obj-multiplex')
 const { inherits } = require('util')
 const SafeEventEmitter = require('safe-event-emitter')
 const dequal = require('fast-deep-equal')
+const { ethErrors } = require('eth-json-rpc-errors')
 
 const messages = require('./messages')
 const { sendSiteMetadata } = require('./siteMetadata')
@@ -56,6 +57,8 @@ function MetamaskInpageProvider (connectionStream) {
   // super constructor
   SafeEventEmitter.call(this)
 
+  this._metamask = getExperimentalApi(this)
+
   // public state
   this.selectedAddress = null
   this.networkVersion = undefined
@@ -67,7 +70,7 @@ function MetamaskInpageProvider (connectionStream) {
     connectionStream,
     mux,
     connectionStream,
-    this._handleDisconnect.bind(this, 'MetaMask')
+    this._handleDisconnect.bind(this, 'MetaMask'),
   )
 
   // subscribe to metamask public config (one-way)
@@ -98,7 +101,7 @@ function MetamaskInpageProvider (connectionStream) {
     mux.createStream('publicConfig'),
     asStream(this.publicConfigStore),
     // RPC requests should still work if only this stream fails
-    logStreamDisconnectWarning.bind(this, 'MetaMask PublicConfigStore')
+    logStreamDisconnectWarning.bind(this, 'MetaMask PublicConfigStore'),
   )
 
   // ignore phishing warning message (handled elsewhere)
@@ -125,7 +128,7 @@ function MetamaskInpageProvider (connectionStream) {
     jsonRpcConnection.stream,
     mux.createStream('provider'),
     jsonRpcConnection.stream,
-    this._handleDisconnect.bind(this, 'MetaMask RpcProvider')
+    this._handleDisconnect.bind(this, 'MetaMask RpcProvider'),
   )
 
   // handle RPC requests via dapp-side rpc engine
@@ -179,57 +182,10 @@ MetamaskInpageProvider.prototype.isConnected = function () {
   return _state.isConnected
 }
 
-// add metamask-specific convenience methods
-MetamaskInpageProvider.prototype._metamask = new Proxy(
-  {
-
-    /**
-     * Determines if MetaMask is unlocked by the user.
-     *
-     * @returns {Promise<boolean>} - Promise resolving to true if MetaMask is currently unlocked
-     */
-    isUnlocked: async function () {
-      return _state.isUnlocked
-    },
-
-    // TODO:deprecate:2019-12-16 isEnabled, isApproved
-    /**
-     * Deprecated. Will be removed on 2019-12-16.
-     * Synchronously determines if this domain is currently enabled, with a potential false negative if called to soon
-     *
-     * @returns {boolean} - returns true if this domain is currently enabled
-     */
-    isEnabled: function () {
-      return Array.isArray(_state.accounts) && _state.accounts.length > 0 
-    },
-
-    /**
-     * Deprecated. Will be removed on 2019-12-16.
-     * Asynchronously determines if this domain is currently enabled
-     *
-     * @returns {Promise<boolean>} - Promise resolving to true if this domain is currently enabled
-     */
-    isApproved: async function () {
-      return Array.isArray(_state.accounts) && _state.accounts.length > 0 
-    },
-  },
-  {
-
-    get: function (obj, prop) {
-
-      if (!_state.sentWarnings.experimentalMethods) {
-        console.warn(messages.warnings.experimentalMethods)
-        _state.sentWarnings.experimentalMethods = true
-      }
-      return obj[prop]
-    },
-  }
-)
-
 /**
  * Sends an RPC request to MetaMask. Resolves to the result of the method call.
  * May reject with an error that must be caught by the caller.
- * 
+ *
  * @param {(string|Object)} methodOrPayload - The method name, or the RPC request object.
  * @param {Array<any>} [params] - If given a method name, the method's parameters.
  * @returns {Promise<any>} - A promise resolving to the result of the method call.
@@ -281,7 +237,9 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
     typeof payload !== 'object' ||
     typeof payload.method !== 'string'
   ) {
-    throw new Error(messages.errors.invalidParams(), payload)
+    throw ethErrors.rpc.invalidRequest({
+      message: messages.errors.invalidParams(), data: payload,
+    })
   }
 
   // specific handler for this method
@@ -293,7 +251,7 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
     try {
       this._sendAsync(
         payload,
-        rpcPromiseCallback(resolve, reject)
+        rpcPromiseCallback(resolve, reject),
       )
     } catch (error) {
       reject(error)
@@ -304,7 +262,7 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
 /**
  * Deprecated.
  * Equivalent to: ethereum.send('eth_requestAccounts')
- * 
+ *
  * @returns {Promise<Array<string>>} - A promise that resolves to an array of addresses.
  */
 MetamaskInpageProvider.prototype.enable = function () {
@@ -319,7 +277,7 @@ MetamaskInpageProvider.prototype.enable = function () {
 /**
  * Deprecated.
  * Backwards compatibility. ethereum.send() with callback.
- * 
+ *
  * @param {Object} payload - The RPC request object.
  * @param {Function} callback - The callback function.
  */
@@ -386,7 +344,7 @@ MetamaskInpageProvider.prototype._requestAccounts = function () {
       {
         method: 'eth_accounts',
       },
-      rpcPromiseCallback(resolve, reject)
+      rpcPromiseCallback(resolve, reject),
     )
   })
   .then(result => {
@@ -401,7 +359,7 @@ MetamaskInpageProvider.prototype._requestAccounts = function () {
             method: 'wallet_requestPermissions',
             params: [{ eth_accounts: {} }],
           },
-          rpcPromiseCallback(resolve, reject)
+          rpcPromiseCallback(resolve, reject),
         )
       })
       .then(() => {
@@ -410,7 +368,7 @@ MetamaskInpageProvider.prototype._requestAccounts = function () {
             {
               method: 'eth_accounts',
             },
-            rpcPromiseCallback(resolve, reject)
+            rpcPromiseCallback(resolve, reject),
           )
         })
       })
@@ -429,35 +387,38 @@ MetamaskInpageProvider.prototype._sendAsync = function (payload, userCallback) {
 
   let cb = userCallback
 
-  if (!payload.jsonrpc) {
-    payload.jsonrpc = '2.0'
-  }
-
   if (!_state.sentSiteMetadata) {
     sendSiteMetadata(this.rpcEngine)
     _state.sentSiteMetadata = true
   }
 
-  if (
-    payload.method === 'eth_signTypedData' &&
-    !_state.sentWarnings.signTypedData
-  ) {
-    console.warn(messages.warnings.signTypedDataDeprecation)
-    _state.sentWarnings.signTypedData = true
+  if (!Array.isArray(payload)) {
 
-  } else if (payload.method === 'eth_accounts') {
+    if (!payload.jsonrpc) {
+      payload.jsonrpc = '2.0'
+    }
 
-    // legacy eth_accounts behavior
-    cb = (err, res) => {
-      if (err) {
-        const code = err.code || res.error.code
-        if (code === 4100) { // if error is unauthorized
-          delete res.error
-          res.result = []
+    if (
+      payload.method === 'eth_signTypedData' &&
+      !_state.sentWarnings.signTypedData
+    ) {
+      console.warn(messages.warnings.signTypedDataDeprecation)
+      _state.sentWarnings.signTypedData = true
+
+    } else if (payload.method === 'eth_accounts') {
+
+      // legacy eth_accounts behavior
+      cb = (err, res) => {
+        if (err) {
+          const code = err.code || res.error.code
+          if (code === 4100) { // if error is unauthorized
+            delete res.error
+            res.result = []
+          }
         }
+        this._handleAccountsChanged(res.result || [])
+        userCallback(err, res)
       }
-      this._handleAccountsChanged(res.result || [])
-      userCallback(err, res)
     }
   }
 
@@ -488,7 +449,7 @@ MetamaskInpageProvider.prototype._handleAccountsChanged = function (accounts) {
   if (!Array.isArray(accounts)) {
     console.error(
       'MetaMask: Received non-array accounts parameter. Please report this bug.',
-      accounts
+      accounts,
     )
     accounts = []
   }
@@ -509,4 +470,80 @@ MetamaskInpageProvider.prototype._handleAccountsChanged = function (accounts) {
   if (window.web3) {
     window.web3.eth.defaultAccount = this.selectedAddress
   }
+}
+
+/**
+ * Gets experimental _metamask API as Proxy.
+ */
+function getExperimentalApi (instance) {
+  return new Proxy(
+    {
+
+      /**
+       * Determines if MetaMask is unlocked by the user.
+       *
+       * @returns {Promise<boolean>} - Promise resolving to true if MetaMask is currently unlocked
+       */
+      isUnlocked: async () => {
+        return _state.isUnlocked
+      },
+
+      /**
+       * Make a batch request.
+       */
+      sendBatch: async (requests) => {
+
+        // basic input validation
+        if (!Array.isArray(requests)) {
+          throw ethErrors.rpc.invalidRequest({
+            message: 'Batch requests must be made with an array of request objects.',
+            data: requests,
+          })
+        }
+
+        return new Promise((resolve, reject) => {
+          try {
+            instance._sendAsync(
+              requests,
+              rpcPromiseCallback(resolve, reject),
+            )
+          } catch (error) {
+            reject(error)
+          }
+        })
+      },
+
+      // TODO:deprecate:2019-12-16 isEnabled, isApproved
+      /**
+       * Deprecated. Will be removed on 2019-12-16.
+       * Synchronously determines if this domain is currently enabled, with a potential false negative if called to soon
+       *
+       * @returns {boolean} - returns true if this domain is currently enabled
+       */
+      isEnabled: () => {
+        return Array.isArray(_state.accounts) && _state.accounts.length > 0
+      },
+
+      /**
+       * Deprecated. Will be removed on 2019-12-16.
+       * Asynchronously determines if this domain is currently enabled
+       *
+       * @returns {Promise<boolean>} - Promise resolving to true if this domain is currently enabled
+       */
+      isApproved: async () => {
+        return Array.isArray(_state.accounts) && _state.accounts.length > 0
+      },
+    },
+    {
+
+      get: (obj, prop) => {
+
+        if (!_state.sentWarnings.experimentalMethods) {
+          console.warn(messages.warnings.experimentalMethods)
+          _state.sentWarnings.experimentalMethods = true
+        }
+        return obj[prop]
+      },
+    },
+  )
 }

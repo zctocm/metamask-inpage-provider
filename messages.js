@@ -1,7 +1,7 @@
 module.exports = {
   errors: {
-    invalidParams: () => `The MetaMask Ethereum provider does not support your given parameters. Please use ethereum.send(method: string, params: Array<any>). For more details, see: https://eips.ethereum.org/EIPS/eip-1193`,
-    unsupportedSync: method => `The MetaMask Web3 object does not support synchronous methods like ${method} without a callback parameter.`
+    invalidParams: () => `Invalid request parameters. Please use ethereum.send(method: string, params: Array<any>). For more details, see: https://eips.ethereum.org/EIPS/eip-1193`,
+    unsupportedSync: (method) => `The MetaMask Web3 object does not support synchronous methods like ${method} without a callback parameter.`, // TODO:deprecate:2019-12-16
   },
   warnings: {
     // TODO:deprecate:2019-12-16
@@ -14,5 +14,5 @@ module.exports = {
     signTypedDataDeprecation: `MetaMask: 'eth_signTypedData' is deprecated and may be removed in the future, in favor of EIP-712. For more information, see: https://git.io/fNzPl`,
     // misc
     experimentalMethods: `MetaMask: 'ethereum._metamask' exposes methods that have not been standardized yet. This means that these methods may not be implemented in other dapp browsers and may be removed from MetaMask in the future.`,
-  }
+  },
 }

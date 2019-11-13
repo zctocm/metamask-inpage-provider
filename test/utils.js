@@ -58,7 +58,7 @@ test('makeThenable objects are Promise ducks', async t => {
       results.res1then1 = res
     })
 
-    let chainRes = await func({ ...responseObject }).then(res => {
+    const chainRes = await func({ ...responseObject }).then(res => {
       results.res2then1 = res
       return res
     })
@@ -68,7 +68,7 @@ test('makeThenable objects are Promise ducks', async t => {
     })
     results.chainRes = chainRes
 
-    results.asyncRes =  await func({ ...responseObject })
+    results.asyncRes = await func({ ...responseObject })
 
     return results
   }

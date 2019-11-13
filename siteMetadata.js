@@ -14,7 +14,7 @@ async function sendSiteMetadata (engine) {
         method: 'wallet_sendDomainMetadata',
         domainMetadata,
       },
-      () => {}
+      () => {},
     )
   } catch (error) {
     console.error({

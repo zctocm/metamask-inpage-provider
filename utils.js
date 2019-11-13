@@ -39,7 +39,7 @@ function createErrorMiddleware () {
 /**
  * Logs a stream disconnection error. Emits an 'error' if bound to an
  * EventEmitter that has listeners for the 'error' event.
- * 
+ *
  * @param {string} remoteLabel - The label of the disconnected stream.
  * @param {Error} err - The associated error to log.
  */
@@ -60,7 +60,7 @@ function logStreamDisconnectWarning (remoteLabel, err) {
  * object is returned from a function, it will behave like a plain object. If
  * the caller expects a Promise, it will behave like a Promise that resolves
  * to the value of the indicated property.
- * 
+ *
  * @param {Object} obj - The object to make thenable.
  * @param {string} prop - The property whose value the object's then function resolves to.
  * @returns {Object} - The secretly thenable object.
@@ -79,7 +79,7 @@ function makeThenable (obj, prop) {
   }
 
   Object.defineProperty(obj, 'then', { ...defineOpts, value: thenFunction })
-  
+
   // the Promise will never fail in our usage, so just make a no-op "catch"
   Object.defineProperty(obj, 'catch', { ...defineOpts, value: () => {} })
 
