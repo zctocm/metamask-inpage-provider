@@ -108,6 +108,22 @@ function MetamaskInpageProvider (connectionStream) {
     logStreamDisconnectWarning.bind(this, 'MetaMask PublicConfigStore'),
   )
 
+  // setup capnode
+  const capStream = mux.createStream('cap')
+  const [capnode, capRemote] = connectCapnode()
+  pump(
+    capRemote,
+    capStream,
+    capRemote,
+    (err) => {
+      console.error('Problem with cap stream', err)
+    }
+  )
+
+  this.requestIndex = () => {
+    return capnode.requestIndex(capRemote)
+  }
+
   // ignore phishing warning message (handled elsewhere)
   mux.ignoreStream('phishing')
 
