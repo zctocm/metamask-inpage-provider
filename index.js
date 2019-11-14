@@ -16,7 +16,6 @@ const { sendSiteMetadata } = require('./src/siteMetadata')
 const {
   createErrorMiddleware,
   logStreamDisconnectWarning,
-  makeThenable,
 } = require('./src/utils')
 
 // resolve response.result, reject errors
@@ -44,9 +43,6 @@ function MetamaskInpageProvider (connectionStream) {
       experimentalMethods: false,
       isConnected: false,
       sendAsync: false,
-      // TODO:deprecate:2020-01-13
-      autoReload: false,
-      sendSync: false,
     },
     isConnected: undefined,
     accounts: undefined,
@@ -96,7 +92,6 @@ function MetamaskInpageProvider (connectionStream) {
     if ('chainId' in state && state.chainId !== this.chainId) {
       this.chainId = state.chainId
       this.emit('chainChanged', this.chainId)
-      this.emit('chainIdChanged', this.chainId) // TODO:deprecate:2020-01-13
     }
 
     // Emit networkChanged event on network change
@@ -155,26 +150,7 @@ function MetamaskInpageProvider (connectionStream) {
 
   // indicate that we've connected, for EIP-1193 compliance
   setTimeout(() => this.emit('connect'))
-
-  // TODO:deprecate:2020-01-13
-  // wait a second to attempt to send this, so that the warning can be silenced
-  // moved this here because there's another warning in .enable() discouraging
-  // the use thereof per EIP 1102
-  setTimeout(() => {
-    if (this.autoRefreshOnNetworkChange && !this._state.sentWarnings.autoReload) {
-      log.warn(messages.warnings.autoReloadDeprecation)
-      this._state.sentWarnings.autoReload = true
-    }
-  }, 1000)
 }
-
-// TODO:deprecate:2020-01-13
-MetamaskInpageProvider.prototype._web3Ref = undefined
-
-// TODO:deprecate:2020-01-13
-// give the dapps control of a refresh they can toggle this off on the window.ethereum
-// this will be default true so it does not break any old apps.
-MetamaskInpageProvider.prototype.autoRefreshOnNetworkChange = true
 
 MetamaskInpageProvider.prototype.isMetaMask = true
 
@@ -211,24 +187,8 @@ MetamaskInpageProvider.prototype.send = function (methodOrPayload, params) {
     !Array.isArray(methodOrPayload)
   ) {
 
-    // TODO:deprecate:2020-01-13
-    // handle send(object, callback), an alias for sendAsync(object, callback)
-    if (typeof params === 'function') {
-      return this._sendAsync(methodOrPayload, params)
-    }
-
     payload = methodOrPayload
 
-    // TODO:deprecate:2020-01-13
-    // backwards compatibility: "synchronous" methods
-    if (!params && [
-      'eth_accounts',
-      'eth_coinbase',
-      'eth_uninstallFilter',
-      'net_version',
-    ].includes(payload.method)) {
-      return this._sendSync(payload)
-    }
   } else if (
     typeof methodOrPayload === 'string' &&
     typeof params !== 'function'
@@ -313,49 +273,6 @@ MetamaskInpageProvider.prototype.sendAsync = function (payload, cb) {
 }
 
 /**
- * TODO:deprecate:2020-01-13
- * Internal backwards compatibility method.
- */
-MetamaskInpageProvider.prototype._sendSync = function (payload) {
-
-  if (!this._state.sentWarnings.sendSync) {
-    log.warn(messages.warnings.sendSyncDeprecation)
-    this._state.sentWarnings.sendSync = true
-  }
-
-  let result
-  switch (payload.method) {
-
-    case 'eth_accounts':
-      result = this.selectedAddress ? [this.selectedAddress] : []
-      break
-
-    case 'eth_coinbase':
-      result = this.selectedAddress || null
-      break
-
-    case 'eth_uninstallFilter':
-      this._sendAsync(payload, () => {})
-      result = true
-      break
-
-    case 'net_version':
-      result = this.networkVersion || null
-      break
-
-    default:
-      throw new Error(messages.errors.unsupportedSync(payload.method))
-  }
-
-  // looks like a plain object, but behaves like a Promise if someone calls .then on it :evil_laugh:
-  return makeThenable({
-    id: payload.id,
-    jsonrpc: payload.jsonrpc,
-    result,
-  }, 'result')
-}
-
-/**
  * Internal RPC method. Forwards requests to background via the RPC engine.
  * Also remap ids inbound and outbound.
  */
@@ -437,14 +354,6 @@ MetamaskInpageProvider.prototype._handleAccountsChanged = function (accounts, is
   if (this.selectedAddress !== accounts[0]) {
     this.selectedAddress = accounts[0] || null
   }
-
-  // TODO:deprecate:2020-01-13
-  // handle web3
-  if (this._web3Ref) {
-    this._web3Ref.defaultAccount = this.selectedAddress
-  } else if (window.web3 && typeof window.web3.eth === 'object') {
-    window.web3.eth.defaultAccount = this.selectedAddress
-  }
 }
 
 /**
@@ -491,32 +400,6 @@ function getExperimentalApi (instance) {
             reject(error)
           }
         })
-      },
-
-      // TODO:deprecate:2020-01-13 isEnabled, isApproved
-      /**
-       * Deprecated. Will be removed on 2020-01-13.
-       * Synchronously determines if this domain is currently enabled, with a potential false negative if called to soon
-       *
-       * @returns {boolean} - returns true if this domain is currently enabled
-       */
-      isEnabled: () => {
-        return Array.isArray(instance._state.accounts) && instance._state.accounts.length > 0
-      },
-
-      /**
-       * Deprecated. Will be removed on 2020-01-13.
-       * Asynchronously determines if this domain is currently enabled
-       *
-       * @returns {Promise<boolean>} - Promise resolving to true if this domain is currently enabled
-       */
-      isApproved: async () => {
-        if (instance._state.accounts === undefined) {
-          await new Promise(
-            (resolve) => instance.once('accountsChanged', () => resolve()),
-          )
-        }
-        return Array.isArray(instance._state.accounts) && instance._state.accounts.length > 0
       },
     },
     {
