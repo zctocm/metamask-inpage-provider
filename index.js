@@ -72,7 +72,7 @@ function MetamaskInpageProvider (connectionStream) {
   this.publicConfigStore = new ObservableStore({ storageKey: 'MetaMask-Config' })
 
   // chainChanged and networkChanged events
-  this.publicConfigStore.subscribe(function (state) {
+  this.publicConfigStore.subscribe(state => {
 
     if ('isUnlocked' in state && state.isUnlocked !== _state.isUnlocked) {
       _state.isUnlocked = state.isUnlocked
@@ -91,6 +91,14 @@ function MetamaskInpageProvider (connectionStream) {
     }
   })
 
+  pump(
+    mux.createStream('publicConfig'),
+    asStream(this.publicConfigStore),
+    // RPC requests should still work if only this stream fails
+    logStreamDisconnectWarning.bind(this, 'MetaMask PublicConfigStore'),
+  )
+
+  // setup capnode
   const capStream = mux.createStream('cap')
   const [capnode, capRemote] = connectCapnode()
   pump(
@@ -105,13 +113,6 @@ function MetamaskInpageProvider (connectionStream) {
   this.requestIndex = () => {
     return capnode.requestIndex(capRemote)
   }
-
-  pump(
-    mux.createStream('publicConfig'),
-    asStream(this.publicConfigStore),
-    // RPC requests should still work if only this stream fails
-    logStreamDisconnectWarning.bind(this, 'MetaMask PublicConfigStore'),
-  )
 
   // ignore phishing warning message (handled elsewhere)
   mux.ignoreStream('phishing')
