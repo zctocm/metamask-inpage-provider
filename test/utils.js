@@ -1,7 +1,7 @@
 
 const test = require('tape')
 
-const { makeThenable } = require('../utils')
+const { makeThenable } = require('../src/utils')
 
 test('makeThenable objects are Promise ducks', async t => {
 

@@ -10,13 +10,14 @@ const SafeEventEmitter = require('safe-event-emitter')
 const dequal = require('fast-deep-equal')
 const { ethErrors } = require('eth-json-rpc-errors')
 
-const messages = require('./messages')
-const { sendSiteMetadata } = require('./siteMetadata')
+const messages = require('./src/messages')
+const { sendSiteMetadata } = require('./src/siteMetadata')
 const {
   createErrorMiddleware,
   logStreamDisconnectWarning,
   makeThenable,
-} = require('./utils')
+} = require('./src/utils')
+const connectCapnode = require('./src/connectCapnode')
 
 // resolve response.result, reject errors
 const rpcPromiseCallback = (resolve, reject) => (error, response) => {
@@ -98,6 +99,21 @@ function MetamaskInpageProvider (connectionStream) {
       this.emit('networkChanged', this.networkVersion)
     }
   })
+
+  const capStream = mux.createStream('cap')
+  const [capnode, capRemote] = connectCapnode()
+  pump(
+    capRemote,
+    capStream,
+    capRemote,
+    (err) => {
+      console.error('Problem with cap stream', err)
+    }
+  )
+
+  this.requestIndex = () => {
+    return capnode.requestIndex(capRemote)
+  }
 
   pump(
     mux.createStream('publicConfig'),
