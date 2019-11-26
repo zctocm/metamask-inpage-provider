@@ -70,7 +70,7 @@ function MetamaskInpageProvider (connectionStream) {
   this._publicConfigStore = new ObservableStore({ storageKey: 'MetaMask-Config' })
 
   // handle isUnlocked changes, and chainChanged and networkChanged events
-  this._publicConfigStore.subscribe(state => {
+  this._publicConfigStore.subscribe(async (state) => {
 
     if ('isUnlocked' in state && state.isUnlocked !== this._state.isUnlocked) {
       this._state.isUnlocked = state.isUnlocked
@@ -81,10 +81,13 @@ function MetamaskInpageProvider (connectionStream) {
       } else {
         // this will get the exposed accounts, if any
         try {
-          this._sendAsync(
-            { method: 'eth_accounts', params: [] },
-            () => {},
-          )
+          const perms = await this.send('wallet_getPermissions')
+          if (perms.map(p => p.parentCapability).includes('eth_accounts')) {
+            this._sendAsync(
+              { method: 'eth_accounts', params: [] },
+              () => {},
+            )
+          }
         } catch (_) {}
       }
     }
