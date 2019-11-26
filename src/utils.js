@@ -5,12 +5,6 @@ const EventEmitter = require('events')
 const SafeEventEmitter = require('safe-event-emitter')
 
 /**
- * Middleware configuration object
- *
- * @typedef {Object} MiddlewareConfig
- */
-
-/**
  * json-rpc-engine middleware that both logs standard and non-standard error
  * messages and ends middleware stack traversal if an error is encountered
  *

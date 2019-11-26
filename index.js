@@ -17,6 +17,7 @@ const {
   createErrorMiddleware,
   logStreamDisconnectWarning,
 } = require('./src/utils')
+const connectCapnode = require('./src/connectCapnode')
 
 // resolve response.result, reject errors
 const rpcPromiseCallback = (resolve, reject) => (error, response) => {
@@ -110,7 +111,7 @@ function MetamaskInpageProvider (connectionStream) {
 
   // setup capnode
   const capStream = mux.createStream('cap')
-  const [capnode, capRemote] = connectCapnode()
+  const [ capnode, capRemote ] = connectCapnode()
   pump(
     capRemote,
     capStream,
