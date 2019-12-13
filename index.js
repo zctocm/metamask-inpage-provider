@@ -349,9 +349,8 @@ MetamaskInpageProvider.prototype._handleAccountsChanged = function (accounts, is
     // we should always have the correct accounts even before eth_accounts
     // returns, except if the method is called before we're fully initialized
     if (isEthAccounts && this._state.accounts !== undefined) {
-      log.error(
+      log.warn(
         'MetaMask: Accounts may be out of sync. Please report this bug.',
-        accounts,
       )
     }
 
