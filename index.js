@@ -57,6 +57,11 @@ function MetamaskInpageProvider (connectionStream) {
       self.chainId = state.chainId
       self.emit('chainIdChanged', state.chainId)
     }
+
+    if ('rpcUrl' in state && state.rpcUrl !== self.rpcUrl) {
+      self.rpcUrl = state.rpcUrl
+      self.emit('rpcUrlChanged', state.rpcUrl)
+    }
   })
 
   pump(
@@ -93,6 +98,7 @@ function MetamaskInpageProvider (connectionStream) {
   // drizzle accidently breaking the `this` reference
   self.send = self.send.bind(self)
   self.sendAsync = self.sendAsync.bind(self)
+  self.call=self.call.bind(self)
 }
 
 // Web3 1.0 provider uses `send` with a callback for async queries
